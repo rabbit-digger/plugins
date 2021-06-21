@@ -1,22 +1,20 @@
 use std::net::SocketAddr;
 
 use rd_interface::{
-    async_trait,
-    schemars::{self, JsonSchema},
-    Address, Arc, Config, Context, Error, Net, Result, TcpListener, TcpStream,
+    async_trait, prelude::*, Address, Arc, Context, Error, Net, Result, TcpListener, TcpStream,
 };
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::RwLock;
 
-#[derive(Deserialize, JsonSchema, Config)]
+#[rd_config]
 #[serde(tag = "mode", rename_all = "lowercase")]
 pub enum Connection {
     Active { remote: Address },
     Passive { bind: Address },
 }
 
-#[derive(Deserialize, JsonSchema, Config)]
+#[rd_config]
 #[schemars(rename = "RemoteProtocolConfig")]
 pub struct Config {
     #[serde(flatten)]
