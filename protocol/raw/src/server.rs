@@ -81,7 +81,7 @@ impl RawServer {
         let ip_addr = IpCidr::from_str(&config.ip_addr)
             .map_err(|_| Error::Other("Failed to parse ip_addr".into()))?;
         let gateway = ip_addr.address();
-        let device = device::get_device(&config.device)?;
+        let device = device::get_by_device(&config.device)?;
 
         let net_config = NetConfig {
             ethernet_addr,
@@ -104,8 +104,7 @@ impl RawServer {
         };
 
         let device = GatewayInterface::new(
-            device::get_by_device(device)?
-                .filter(move |p: &Packet| ready(filter_packet(p, ethernet_addr, ip_addr))),
+            device.filter(move |p: &Packet| ready(filter_packet(p, ethernet_addr, ip_addr))),
             config.lru_size,
             SocketAddrV4::new(addr.into(), 20000),
         );

@@ -32,7 +32,7 @@ impl RawNet {
             .map_err(|_| Error::Other("Failed to parse ip_addr".into()))?;
         let gateway = IpAddress::from_str(&config.gateway)
             .map_err(|_| Error::Other("Failed to parse gateway".into()))?;
-        let device = device::get_device(&config.device)?;
+        let device = device::get_by_device(&config.device)?;
 
         let net_config = NetConfig {
             ethernet_addr,
@@ -48,7 +48,7 @@ impl RawNet {
                 ..Default::default()
             },
         };
-        let mut device = FutureDevice::new(device::get_by_device(device)?, config.mtu);
+        let mut device = FutureDevice::new(device, config.mtu);
         device.caps.max_burst_size = Some(100);
 
         let (net, fut) = Net::new(device, net_config);
