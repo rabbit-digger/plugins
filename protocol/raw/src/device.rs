@@ -1,21 +1,25 @@
-use rd_interface::{Error, Result};
-use tokio_smoltcp::device::Interface;
+use once_cell::sync::OnceCell;
+use rawsock::traits::Library;
+use rd_interface::{error::map_other, Error, Result};
+use tokio::sync::mpsc::{Receiver, Sender};
+use tokio_smoltcp::{device::Interface, util::ChannelCapture};
 
-#[cfg(unix)]
-fn get_rawsock() -> &'static rawsock::pcap::Library {
-    use once_cell::sync::OnceCell;
-    use rawsock::{pcap::Library, traits::Library as _};
-    static LIB: OnceCell<Library> = OnceCell::new();
-    &LIB.get_or_init(|| Library::open_default_paths().expect("Failed to open libpcap"))
+fn get_rawsock() -> &'static Box<dyn Library> {
+    static LIB: OnceCell<Box<dyn Library>> = OnceCell::new();
+    &LIB.get_or_init(|| {
+        #[cfg(unix)]
+        return Box::new(
+            rawsock::pcap::Library::open_default_paths().expect("Failed to open libpcap"),
+        );
+
+        #[cfg(windows)]
+        return Box::new(
+            rawsock::wpcap::Library::open_default_paths().expect("Failed to open wpcap"),
+        );
+    })
 }
 
-#[cfg(unix)]
 pub fn get_by_device(name: &str) -> Result<impl Interface> {
-    use rawsock::traits::Library;
-    use rd_interface::error::map_other;
-    use tokio::sync::mpsc::{Receiver, Sender};
-    use tokio_smoltcp::util::ChannelCapture;
-
     let lib = get_rawsock();
     lib.all_interfaces()
         .map_err(map_other)?
@@ -34,69 +38,6 @@ pub fn get_by_device(name: &str) -> Result<impl Interface> {
     let send = move |mut rx: Receiver<Vec<u8>>| {
         while let Some(pkt) = rx.blocking_recv() {
             send_dev.send(&pkt).unwrap();
-        }
-    };
-    let capture = ChannelCapture::new(recv, send);
-    Ok(capture)
-}
-
-#[cfg(windows)]
-fn get_device(name: &str) -> Result<Device> {
-    let mut devices = Device::list().context("Failed to list device")?;
-
-    if let Some(id) = devices.iter().position(|d| d.name == name) {
-        Ok(devices.remove(id))
-    } else {
-        Err(Error::Other(
-            format!(
-                "Failed to find device {} from {:?}",
-                name,
-                devices
-                    .into_iter()
-                    .map(|i| format!("[{}] {}", i.name, i.desc.unwrap_or_default()))
-                    .collect::<Vec<String>>()
-            )
-            .into(),
-        ))
-    }
-}
-
-#[cfg(windows)]
-pub fn get_by_device(name: &str) -> Result<impl Interface> {
-    let device = get_device(name)?;
-    use pcap::{Capture, Device};
-    use tokio::sync::mpsc::{Receiver, Sender};
-    use tokio_smoltcp::util::ChannelCapture;
-
-    let mut cap = Capture::from_device(device.clone())
-        .context("Failed to capture device")?
-        .promisc(true)
-        .immediate_mode(true)
-        .timeout(5)
-        .open()
-        .context("Failed to open device")?;
-    let mut send = Capture::from_device(device)
-        .context("Failed to capture device")?
-        .promisc(true)
-        .immediate_mode(true)
-        .timeout(5)
-        .open()
-        .context("Failed to open device")?;
-
-    let recv = move |tx: Sender<Vec<u8>>| loop {
-        let p = match cap.next().map(|p| p.to_vec()) {
-            Ok(p) => p,
-            Err(pcap::Error::TimeoutExpired) => continue,
-            Err(e) => {
-                eprintln!("Error: {:?}", e);
-                break;
-            }
-        };
-        tx.blocking_send(p).unwrap();
-    };
-    let send = move |mut rx: Receiver<Vec<u8>>| {
-        while let Some(pkt) = rx.blocking_recv() {
-            send.sendpacket(pkt).unwrap();
         }
     };
     let capture = ChannelCapture::new(recv, send);
